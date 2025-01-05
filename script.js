@@ -461,17 +461,17 @@ async function checkChannelMembership() {
         const user = tg.initDataUnsafe?.user;
         if (!user) return false;
 
-        // Check membership status first
+        // First check if user is already a member
         try {
-            const isMember = await tg.sendData('check_membership');
-            if (isMember === 'true') {
+            const initialCheck = await tg.sendData('check_membership');
+            if (initialCheck === 'true') {
                 return true;
             }
         } catch (error) {
-            console.error('Initial membership check error:', error);
+            console.error('Error in initial membership check:', error);
         }
 
-        // Only create modal if user is not a member
+        // Create a modal for channel join request
         const channelModal = document.createElement('div');
         channelModal.className = 'modal active';
         channelModal.innerHTML = `
@@ -501,7 +501,12 @@ async function checkChannelMembership() {
             } catch (error) {
                 console.error('Error checking membership:', error);
             }
-        }, 2000);
+        }, 3000); // Increased interval to 3 seconds to reduce server load
+
+        // Set a timeout to clear the interval after 30 seconds
+        setTimeout(() => {
+            clearInterval(checkInterval);
+        }, 30000);
 
         return false;
     } catch (error) {
