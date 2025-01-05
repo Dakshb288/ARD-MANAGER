@@ -2,52 +2,64 @@
 const tg = window.Telegram.WebApp;
 tg.expand();
 
-// Channel configuration
-const TELEGRAM_CHANNEL = '@ArdManagerOfficial';
-const CHANNEL_LINK = 'https://t.me/ArdManagerOfficial';
-
 // Initialize state
 let airdrops = [];
-let selectedAirdropId = null;
 let currentPage = 1;
 const ITEMS_PER_PAGE = 5;
 let currentSort = 'newest';
 let currentFilter = '';
 let activeTags = new Set();
-let currentViewMode = 'list';
-let isFullScreenMode = false;
+let currentScreen = 'homeScreen';
 
 // DOM Elements
+const screens = document.querySelectorAll('.screen');
+const navItems = document.querySelectorAll('.nav-item');
 const airdropForm = document.getElementById('airdropForm');
+const airdropNameInput = document.getElementById('airdropName');
+const airdropLinkInput = document.getElementById('airdropLink');
+const airdropTagsInput = document.getElementById('airdropTags');
 const airdropsContainer = document.getElementById('airdropsContainer');
-const confirmModal = document.getElementById('confirmModal');
-const confirmDeleteBtn = document.getElementById('confirmDelete');
-const cancelDeleteBtn = document.getElementById('cancelDelete');
-const resetButton = document.getElementById('resetButton');
-const toast = document.getElementById('toast');
+const recentAirdrops = document.getElementById('recentAirdrops');
 const searchInput = document.getElementById('searchAirdrops');
 const sortSelect = document.getElementById('sortDrops');
 const tagsContainer = document.getElementById('tagsContainer');
-const paginationContainer = document.getElementById('pagination');
 const totalAirdropsElement = document.getElementById('totalAirdrops');
 const todayAirdropsElement = document.getElementById('todayAirdrops');
 const themeToggle = document.getElementById('themeToggle');
 const viewModeToggle = document.getElementById('viewModeToggle');
-const expandAllButton = document.getElementById('expandAll');
+const resetButton = document.getElementById('resetButton');
+const toast = document.getElementById('toast');
 
-// Create full-screen view container
-const fullScreenView = document.createElement('div');
-fullScreenView.className = 'full-screen-view';
-fullScreenView.innerHTML = `
-    <div class="full-screen-header">
-        <h2 class="full-screen-title">All Airdrops</h2>
-        <button class="close-full-screen">×</button>
-    </div>
-    <div class="full-screen-content">
-        <div class="airdrops-container"></div>
-    </div>
-`;
-document.body.appendChild(fullScreenView);
+// Screen Management
+function showScreen(screenId) {
+    screens.forEach(screen => {
+        screen.classList.remove('active');
+    });
+    document.getElementById(screenId).classList.add('active');
+    
+    navItems.forEach(item => {
+        item.classList.remove('active');
+        if (item.dataset.screen === screenId) {
+            item.classList.add('active');
+        }
+    });
+    
+    currentScreen = screenId;
+    
+    // Update content based on screen
+    if (screenId === 'homeScreen') {
+        updateRecentAirdrops();
+    } else if (screenId === 'exploreScreen') {
+        renderAirdrops();
+    }
+}
+
+// Navigation Event Listeners
+navItems.forEach(item => {
+    item.addEventListener('click', () => {
+        showScreen(item.dataset.screen);
+    });
+});
 
 // Theme Management
 function initializeTheme() {
@@ -62,73 +74,150 @@ function toggleTheme() {
     localStorage.setItem('theme', newTheme);
 }
 
-// Load airdrops from localStorage
-function loadAirdrops() {
-    const savedAirdrops = localStorage.getItem('airdrops');
-    if (savedAirdrops) {
-        airdrops = JSON.parse(savedAirdrops);
-        updateStats();
-        renderTags();
+// Airdrop Management
+function addAirdrop(name, link, tags = '') {
+    const airdrop = {
+        id: Date.now().toString(),
+        name: name.trim(),
+        link: link.trim(),
+        timestamp: Date.now(),
+        tags: tags.split(',').map(tag => tag.trim()).filter(tag => tag),
+        visits: 0
+    };
+    
+    airdrops.unshift(airdrop);
+    saveAirdrops();
+    updateStats();
+    showToast('Airdrop added successfully!');
+    
+    if (currentScreen === 'homeScreen') {
+        updateRecentAirdrops();
+    } else if (currentScreen === 'exploreScreen') {
         renderAirdrops();
     }
 }
 
-// Save airdrops to localStorage
+function updateRecentAirdrops() {
+    const recent = airdrops.slice(0, 3);
+    recentAirdrops.innerHTML = recent.map(airdrop => `
+        <div class="airdrop-item">
+            <div class="airdrop-info">
+                <div class="airdrop-name">${airdrop.name}</div>
+                <div class="airdrop-meta">
+                    <span>${formatDate(airdrop.timestamp)}</span>
+                    ${airdrop.visits ? `<span>👁 ${airdrop.visits} visits</span>` : ''}
+                </div>
+            </div>
+            <div class="airdrop-actions">
+                <button class="btn-go" onclick="window.open('${airdrop.link}', '_blank'); trackVisit('${airdrop.id}')">
+                    Go to Airdrop →
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+// Stats Management
+function updateStats() {
+    const total = airdrops.length;
+    const today = airdrops.filter(airdrop => {
+        const date = new Date(airdrop.timestamp);
+        const today = new Date();
+        return date.toDateString() === today.toDateString();
+    }).length;
+    
+    totalAirdropsElement.textContent = total;
+    todayAirdropsElement.textContent = today;
+}
+
+// Event Listeners
+airdropForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = airdropNameInput.value;
+    const link = airdropLinkInput.value;
+    const tags = airdropTagsInput.value;
+    
+    addAirdrop(name, link, tags);
+    
+    airdropForm.reset();
+    showScreen('homeScreen');
+});
+
+themeToggle.addEventListener('click', toggleTheme);
+
+resetButton.addEventListener('click', () => {
+    const resetModal = document.getElementById('resetModal');
+    resetModal.classList.add('active');
+});
+
+document.getElementById('confirmReset').addEventListener('click', () => {
+    airdrops = [];
+    saveAirdrops();
+    updateStats();
+    renderAirdrops();
+    document.getElementById('resetModal').classList.remove('active');
+    showToast('All airdrops have been reset');
+});
+
+document.getElementById('cancelReset').addEventListener('click', () => {
+    document.getElementById('resetModal').classList.remove('active');
+});
+
+// Initialize app
+document.addEventListener('DOMContentLoaded', async () => {
+    initializeTheme();
+    
+    // Show intro animation
+    const introAnimation = document.querySelector('.intro-animation');
+    setTimeout(() => {
+        introAnimation.style.opacity = '0';
+        setTimeout(() => {
+            introAnimation.style.display = 'none';
+            // Check channel membership after intro
+            checkChannelMembership();
+        }, 1000);
+    }, 2000);
+
+    // Load saved airdrops
+    const saved = localStorage.getItem('airdrops');
+    if (saved) {
+        airdrops = JSON.parse(saved);
+    }
+    
+    updateStats();
+    updateRecentAirdrops();
+    
+    tg.ready();
+});
+
+// Helper Functions
 function saveAirdrops() {
     localStorage.setItem('airdrops', JSON.stringify(airdrops));
-    updateStats();
 }
 
-// Update statistics
-function updateStats() {
-    totalAirdropsElement.textContent = airdrops.length;
-    
-    const today = new Date().toDateString();
-    const todayCount = airdrops.filter(airdrop => 
-        new Date(airdrop.timestamp).toDateString() === today
-    ).length;
-    
-    todayAirdropsElement.textContent = todayCount;
-}
-
-// Extract and render tags
-function renderTags() {
-    const tags = new Set();
-    airdrops.forEach(airdrop => {
-        if (airdrop.tags) {
-            airdrop.tags.forEach(tag => tags.add(tag));
-        }
-    });
-
-    tagsContainer.innerHTML = Array.from(tags).map(tag => `
-        <span class="tag ${activeTags.has(tag) ? 'active' : ''}" data-tag="${tag}">
-            ${tag}
-        </span>
-    `).join('');
-
-    // Add click handlers
-    document.querySelectorAll('.tag').forEach(tagElement => {
-        tagElement.addEventListener('click', () => {
-            const tag = tagElement.dataset.tag;
-            if (activeTags.has(tag)) {
-                activeTags.delete(tag);
-            } else {
-                activeTags.add(tag);
-            }
-            renderTags();
-            renderAirdrops();
-        });
+function formatDate(timestamp) {
+    const date = new Date(timestamp);
+    return date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
     });
 }
 
-// Show toast message
-function showToast(message, type = 'success') {
+function showToast(message) {
     toast.textContent = message;
-    toast.style.background = type === 'success' ? 'var(--success)' : 'var(--danger)';
-    toast.classList.add('show');
+    toast.classList.add('active');
     setTimeout(() => {
-        toast.classList.remove('show');
+        toast.classList.remove('active');
     }, 3000);
+}
+
+function trackVisit(id) {
+    const airdrop = airdrops.find(a => a.id === id);
+    if (airdrop) {
+        airdrop.visits = (airdrop.visits || 0) + 1;
+        saveAirdrops();
+    }
 }
 
 // Filter and sort airdrops
@@ -206,15 +295,6 @@ function renderPagination(totalItems) {
     });
 }
 
-// Track airdrop visits
-function trackVisit(airdropId) {
-    const airdrop = airdrops.find(a => a.id === airdropId);
-    if (airdrop) {
-        airdrop.visits = (airdrop.visits || 0) + 1;
-        saveAirdrops();
-    }
-}
-
 // Render airdrops
 function renderAirdrops() {
     const filteredAirdrops = getFilteredAndSortedAirdrops();
@@ -263,50 +343,44 @@ function renderAirdrops() {
     });
 }
 
-// Format date
-function formatDate(timestamp) {
-    const date = new Date(timestamp);
-    return date.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
+// Extract and render tags
+function renderTags() {
+    const tags = new Set();
+    airdrops.forEach(airdrop => {
+        if (airdrop.tags) {
+            airdrop.tags.forEach(tag => tags.add(tag));
+        }
+    });
+
+    tagsContainer.innerHTML = Array.from(tags).map(tag => `
+        <span class="tag ${activeTags.has(tag) ? 'active' : ''}" data-tag="${tag}">
+            ${tag}
+        </span>
+    `).join('');
+
+    // Add click handlers
+    document.querySelectorAll('.tag').forEach(tagElement => {
+        tagElement.addEventListener('click', () => {
+            const tag = tagElement.dataset.tag;
+            if (activeTags.has(tag)) {
+                activeTags.delete(tag);
+            } else {
+                activeTags.add(tag);
+            }
+            renderTags();
+            renderAirdrops();
+        });
     });
 }
 
-// Show modal
-function showModal() {
-    confirmModal.classList.add('active');
-}
-
-// Hide modal
-function hideModal() {
-    confirmModal.classList.remove('active');
-}
-
-// Add new airdrop
-function addAirdrop(name, link) {
-    // Extract tags from name (e.g., "Name #tag1 #tag2")
-    const tags = [];
-    const nameWithoutTags = name.replace(/#\w+/g, match => {
-        tags.push(match.slice(1));
-        return '';
-    }).trim();
-
-    const newAirdrop = {
-        id: Date.now().toString(),
-        name: nameWithoutTags,
-        link,
-        timestamp: Date.now(),
-        tags,
-        visits: 0
-    };
-    
-    airdrops.push(newAirdrop);
-    saveAirdrops();
-    renderTags();
-    renderAirdrops();
-    showToast('Airdrop added successfully');
+// Show toast message
+function showToast(message, type = 'success') {
+    toast.textContent = message;
+    toast.style.background = type === 'success' ? 'var(--success)' : 'var(--danger)';
+    toast.classList.add('show');
+    setTimeout(() => {
+        toast.classList.remove('show');
+    }, 3000);
 }
 
 // Delete airdrop
@@ -387,7 +461,17 @@ async function checkChannelMembership() {
         const user = tg.initDataUnsafe?.user;
         if (!user) return false;
 
-        // Create a modal for channel join request
+        // Check membership status first
+        try {
+            const isMember = await tg.sendData('check_membership');
+            if (isMember === 'true') {
+                return true;
+            }
+        } catch (error) {
+            console.error('Initial membership check error:', error);
+        }
+
+        // Only create modal if user is not a member
         const channelModal = document.createElement('div');
         channelModal.className = 'modal active';
         channelModal.innerHTML = `
@@ -412,6 +496,7 @@ async function checkChannelMembership() {
                     clearInterval(checkInterval);
                     channelModal.remove();
                     showToast('Welcome to ARD Manager!');
+                    return true;
                 }
             } catch (error) {
                 console.error('Error checking membership:', error);
@@ -426,17 +511,6 @@ async function checkChannelMembership() {
 }
 
 // Event Listeners
-airdropForm.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const nameInput = document.getElementById('airdropName');
-    const linkInput = document.getElementById('airdropLink');
-    
-    addAirdrop(nameInput.value, linkInput.value);
-    
-    nameInput.value = '';
-    linkInput.value = '';
-});
-
 searchInput.addEventListener('input', (e) => {
     currentFilter = e.target.value;
     currentPage = 1;
@@ -448,26 +522,9 @@ sortSelect.addEventListener('change', (e) => {
     renderAirdrops();
 });
 
-themeToggle.addEventListener('click', toggleTheme);
-
-confirmDeleteBtn.addEventListener('click', () => {
-    if (selectedAirdropId) {
-        deleteAirdrop(selectedAirdropId);
-        hideModal();
-        selectedAirdropId = null;
-    }
-});
-
-cancelDeleteBtn.addEventListener('click', () => {
-    hideModal();
-    selectedAirdropId = null;
-});
-
-resetButton.addEventListener('click', () => {
-    if (confirm('Are you sure you want to reset all airdrops?')) {
-        resetAirdrops();
-    }
-});
+viewModeToggle.addEventListener('click', toggleViewMode);
+expandAllButton.addEventListener('click', showFullScreenView);
+fullScreenView.querySelector('.close-full-screen').addEventListener('click', hideFullScreenView);
 
 // Close modal when clicking outside
 confirmModal.addEventListener('click', (e) => {
@@ -475,28 +532,4 @@ confirmModal.addEventListener('click', (e) => {
         hideModal();
         selectedAirdropId = null;
     }
-});
-
-viewModeToggle.addEventListener('click', toggleViewMode);
-expandAllButton.addEventListener('click', showFullScreenView);
-fullScreenView.querySelector('.close-full-screen').addEventListener('click', hideFullScreenView);
-
-// Initialize app
-document.addEventListener('DOMContentLoaded', async () => {
-    initializeTheme();
-    initializeViewMode();
-    
-    // Show intro animation
-    const introAnimation = document.querySelector('.intro-animation');
-    setTimeout(() => {
-        introAnimation.style.opacity = '0';
-        setTimeout(() => {
-            introAnimation.style.display = 'none';
-            // Check channel membership after intro
-            checkChannelMembership();
-        }, 1000);
-    }, 2000);
-
-    loadAirdrops();
-    tg.ready();
 });
