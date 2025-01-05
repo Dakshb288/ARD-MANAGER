@@ -2,6 +2,10 @@
 const tg = window.Telegram.WebApp;
 tg.expand();
 
+// Channel Configuration
+const TELEGRAM_CHANNEL = '@ArdManagerOfficial';
+const CHANNEL_LINK = 'https://t.me/ArdManagerOfficial';
+
 // Initialize state
 let airdrops = [];
 let currentPage = 1;
@@ -10,6 +14,7 @@ let currentSort = 'newest';
 let currentFilter = '';
 let activeTags = new Set();
 let currentScreen = 'homeScreen';
+let isMembershipConfirmed = false;
 
 // DOM Elements
 const screens = document.querySelectorAll('.screen');
@@ -164,31 +169,43 @@ document.getElementById('cancelReset').addEventListener('click', () => {
 });
 
 // Initialize app
-document.addEventListener('DOMContentLoaded', async () => {
+async function initializeApp() {
     initializeTheme();
-    
-    // Show intro animation
-    const introAnimation = document.querySelector('.intro-animation');
-    setTimeout(() => {
-        introAnimation.style.opacity = '0';
-        setTimeout(() => {
-            introAnimation.style.display = 'none';
-            // Check channel membership after intro
-            checkChannelMembership();
-        }, 1000);
-    }, 2000);
-
-    // Load saved airdrops
-    const saved = localStorage.getItem('airdrops');
-    if (saved) {
-        airdrops = JSON.parse(saved);
-    }
-    
+    initializeViewMode();
+    loadAirdrops();
+    renderTags();
     updateStats();
-    updateRecentAirdrops();
     
-    tg.ready();
-});
+    // Disable features initially
+    toggleFeatures(false);
+    
+    // Check channel membership
+    const isMember = await checkChannelMembership();
+    if (isMember) {
+        isMembershipConfirmed = true;
+        toggleFeatures(true);
+    }
+}
+
+// Function to enable/disable features based on membership
+function toggleFeatures(enabled) {
+    const interactiveElements = [
+        airdropForm,
+        searchInput,
+        sortSelect,
+        viewModeToggle,
+        ...document.querySelectorAll('.nav-item'),
+        ...document.querySelectorAll('.btn-primary'),
+        ...document.querySelectorAll('.btn-text')
+    ];
+
+    interactiveElements.forEach(element => {
+        if (element) {
+            element.style.pointerEvents = enabled ? 'auto' : 'none';
+            element.style.opacity = enabled ? '1' : '0.5';
+        }
+    });
+}
 
 // Helper Functions
 function saveAirdrops() {
@@ -463,8 +480,13 @@ async function checkChannelMembership() {
 
         // First check if user is already a member
         try {
-            const initialCheck = await tg.sendData('check_membership');
-            if (initialCheck === 'true') {
+            const result = await tg.sendData(JSON.stringify({
+                action: 'check_membership',
+                user_id: user.id,
+                channel: TELEGRAM_CHANNEL
+            }));
+            
+            if (result === 'true') {
                 return true;
             }
         } catch (error) {
@@ -479,36 +501,42 @@ async function checkChannelMembership() {
                 <h3>Join Our Channel</h3>
                 <p>Please join our official channel to use this app:</p>
                 <div class="channel-info">
-                    <span class="channel-name">${TELEGRAM_CHANNEL}</span>
+                    <span class="channel-name">${ArdManagerOfficial}</span>
                 </div>
                 <div class="modal-actions">
-                    <a href="${CHANNEL_LINK}" class="btn-primary" target="_blank">Join Channel</a>
+                    <a href="${ArdManagerOfficial}" class="btn-primary" target="_blank" rel="noopener noreferrer">Join Channel</a>
                 </div>
             </div>
         `;
         document.body.appendChild(channelModal);
 
         // Check membership status periodically
-        const checkInterval = setInterval(async () => {
-            try {
-                const isMember = await tg.sendData('check_membership');
-                if (isMember === 'true') {
-                    clearInterval(checkInterval);
-                    channelModal.remove();
-                    showToast('Welcome to ARD Manager!');
-                    return true;
+        return new Promise((resolve) => {
+            const checkInterval = setInterval(async () => {
+                try {
+                    const result = await tg.sendData(JSON.stringify({
+                        action: 'check_membership',
+                        user_id: user.id,
+                        channel: TELEGRAM_CHANNEL
+                    }));
+
+                    if (result === 'true') {
+                        clearInterval(checkInterval);
+                        channelModal.remove();
+                        showToast('Welcome to ARD Manager!');
+                        resolve(true);
+                    }
+                } catch (error) {
+                    console.error('Error checking membership:', error);
                 }
-            } catch (error) {
-                console.error('Error checking membership:', error);
-            }
-        }, 3000); // Increased interval to 3 seconds to reduce server load
+            }, 3000);
 
-        // Set a timeout to clear the interval after 30 seconds
-        setTimeout(() => {
-            clearInterval(checkInterval);
-        }, 30000);
-
-        return false;
+            // Set a timeout to clear the interval after 30 seconds
+            setTimeout(() => {
+                clearInterval(checkInterval);
+                resolve(false);
+            }, 30000);
+        });
     } catch (error) {
         console.error('Error checking channel membership:', error);
         return false;
@@ -538,3 +566,6 @@ confirmModal.addEventListener('click', (e) => {
         selectedAirdropId = null;
     }
 });
+
+// Initialize the app
+document.addEventListener('DOMContentLoaded', initializeApp);
